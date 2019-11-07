@@ -1,7 +1,7 @@
 module.exports = req => {
-	const { message } = req.query;
+  const { message } = req.query;
 
-	return {
-		message
-	}
+  return {
+    message
+  }
 };
