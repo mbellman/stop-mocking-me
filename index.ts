@@ -18,7 +18,7 @@ interface IMockRoute {
 }
 
 interface IMockResponse {
-  mock: any;
+  body: any;
   status: number;
   delay: number;
 }
@@ -74,10 +74,10 @@ function createResponseMap(responses: ResponseDefinitionMap): Record<RequestMeth
   return Object.keys(responses).reduce((acc: ResponseMap, requestMethod: RequestMethod) => {
     const mockResponseDefinition = responses[requestMethod];
     const { path: responsePath, status, delay } = normalizeResponseDefinition(mockResponseDefinition);
-    const mock = require(path.resolve(CURRENT_WORKING_DIRECTORY, responsePath));
+    const body = require(path.resolve(CURRENT_WORKING_DIRECTORY, responsePath));
 
     acc[requestMethod] = {
-      mock,
+      body,
       status,
       delay
     };
@@ -97,7 +97,7 @@ function createMockRoute({ endpoint, responses }: IMockRoute, app: ExpressApplic
   const supportedRequestMethods = Object.keys(responseMap);
 
   app.use(endpoint, (req, res) => {
-    const response = responseMap[req.method];
+    const response = responseMap[req.method as RequestMethod];
 
     if (!response) {
       warn(`Unsupported ${chalk.red(req.method)} call to endpoint: '${chalk.blue(endpoint)}' (supported: ${chalk.yellow(supportedRequestMethods.join(', '))})`);
@@ -105,12 +105,12 @@ function createMockRoute({ endpoint, responses }: IMockRoute, app: ExpressApplic
       return;
     }
 
-    const { mock, status, delay } = response;
-    const data = typeof mock === 'function' ? mock(req) : mock;
+    const { body, status, delay } = response;
+    const responseBody = typeof body === 'function' ? body(req) : body;
 
     log(`${chalk.yellow(req.method)} request made to endpoint '${chalk.blue(endpoint)}' (status: ${status})`);
 
-    setTimeout(() => res.status(status).send(data), delay);
+    setTimeout(() => res.status(status).send(responseBody), delay);
   });
 }
 
