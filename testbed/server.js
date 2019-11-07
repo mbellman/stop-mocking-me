@@ -1,6 +1,6 @@
 const path = require('path');
 const express = require('express');
-const { createMockRoutes } = require('../lib');
+const { createMockServer } = require('../lib');
 const app = express();
 
 const mockRoutes = [
@@ -31,5 +31,10 @@ app.get('/demo', (_, res) => {
 app.listen(1234, () => {
   console.log('http://localhost:1234/demo');
 
-  createMockRoutes(mockRoutes, app);
+  createMockServer(app, {
+    routes: mockRoutes,
+    options: {
+      disableCaching: true
+    }
+  });
 });
