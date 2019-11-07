@@ -1,0 +1,10 @@
+{
+	"compilerOptions": {
+		"declaration": true,
+		"esModuleInterop": true,
+		"outDir": "lib"
+	},
+	"files": [
+		"index.ts"
+	]
+}
