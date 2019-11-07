@@ -1,5 +1,6 @@
 mock-services/
 testbed/
+index.ts
 .gitignore
 package-lock.json
 tsconfig.json
