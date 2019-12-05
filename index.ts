@@ -1,6 +1,7 @@
 import * as path from 'path';
 import express, { Application as ExpressApplication } from 'express';
 import chalk from 'chalk';
+import cookieParser from 'cookie-parser';
 
 type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -57,16 +58,16 @@ function bustCachedMockResponse(responsePath: string): void {
 }
 
 /**
- * Converts a mock response configuration into a mock response definition.
+ * Normalizes a mock response configuration into a mock response definition.
  *
  * @internal
  */
-function getMockResponseDefinition(definition: MockResponseConfiguration): MockResponseDefinition {
+function getMockResponseDefinition(configuration: MockResponseConfiguration): MockResponseDefinition {
   const {
-    path = definition as string,
+    path = configuration as string,
     status = 200,
     delay = 0
-  } = definition as MockResponseDefinition;
+  } = configuration as MockResponseDefinition;
 
   return {
     path,
@@ -106,7 +107,7 @@ function createMockRoute({ endpoint, responses }: MockRoute, app: ExpressApplica
   const responseDefinitions = createResponseDefinitionMap(responses);
   const supportedRequestMethods = Object.keys(responseDefinitions);
 
-  app.use(endpoint, (req, res) => {
+  app.use(endpoint, async (req, res) => {
     const response = responseDefinitions[req.method as RequestMethod];
 
     if (!response) {
@@ -122,18 +123,23 @@ function createMockRoute({ endpoint, responses }: MockRoute, app: ExpressApplica
     const { status, delay } = response;
     const responseBody = require(response.path);
 
+    // Tentatively set the response status so it can still be
+    // optionally overridden by custom response middleware
+    res.status(status);
+
     const finalResponseBody = typeof responseBody === 'function'
-      ? responseBody(req)
+      ? await responseBody(req, res)
       : responseBody;
 
-    log(`${chalk.yellow(req.method)} request made to endpoint '${chalk.blue(endpoint)}' (status: ${status})`);
+    log(`${chalk.yellow(req.method)} request made to endpoint '${chalk.blue(endpoint)}' (status: ${res.statusCode})`);
 
-    setTimeout(() => res.status(status).send(finalResponseBody), delay);
+    setTimeout(() => res.send(finalResponseBody), delay);
   });
 }
 
 export function createMockServer(app: ExpressApplication, config: MockServerConfiguration): void {
   app.use(express.json());
+  app.use(cookieParser());
 
   const { routes = [], options = {} } = config;
 

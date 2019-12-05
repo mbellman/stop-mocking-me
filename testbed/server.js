@@ -21,6 +21,18 @@ const mockRoutes = [
         delay: 500
       }
     }
+  },
+  {
+    endpoint: '/res',
+    responses: {
+      POST: './mock-services/res.js'
+    }
+  },
+  {
+    endpoint: '/async',
+    responses: {
+      GET: './mock-services/async.js'
+    }
   }
 ]
 
