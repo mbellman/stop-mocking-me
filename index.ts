@@ -38,23 +38,28 @@ const CURRENT_WORKING_DIRECTORY = process.cwd();
  * @internal
  */
 function log(message) {
-  console.log(`${chalk.green('[SMM]')} ${message}`);
+  console.log(`${chalk.green('[Stop Mocking Me]')} ${message}`);
 }
 
 /**
  * @internal
  */
 function warn(message) {
-  console.log(`${chalk.red('[SMM]')} ${message}`);
+  console.log(`${chalk.red('[Stop Mocking Me]')} ${message}`);
 }
 
 /**
- * Cleares the require cache for a specific mock response.
+ * Deeply clears the require cache for a specific module.
  *
  * @internal
  */
-function bustCachedMockResponse(responsePath: string): void {
-  delete require.cache[require.resolve(responsePath)];
+function bustModuleCache(id: string): void {
+  const moduleId = require.resolve(id);
+  const { children: modules = [] } = require.cache[moduleId] || {};
+
+  modules.forEach(({ id }) => bustModuleCache(id));
+
+  delete require.cache[moduleId];
 }
 
 /**
@@ -107,17 +112,18 @@ function createMockRoute({ endpoint, responses }: MockRoute, app: ExpressApplica
   const responseDefinitions = createResponseDefinitionMap(responses);
   const supportedRequestMethods = Object.keys(responseDefinitions);
 
-  app.use(endpoint, async (req, res) => {
+  app.use(endpoint, async (req, res, next) => {
     const response = responseDefinitions[req.method as RequestMethod];
 
     if (!response) {
       warn(`Unsupported ${chalk.red(req.method)} call to endpoint: '${chalk.blue(endpoint)}' (supported: ${chalk.yellow(supportedRequestMethods.join(', '))})`);
+      next();
 
       return;
     }
 
     if (options.disableCaching) {
-      bustCachedMockResponse(response.path);
+      bustModuleCache(response.path);
     }
 
     const { status, delay } = response;
@@ -146,6 +152,8 @@ export function createMockServer(app: ExpressApplication, config: MockServerConf
   for (const route of routes) {
     createMockRoute(route, app, options);
   }
+
+  console.log('\n');
 
   log('Mock routes created!');
 

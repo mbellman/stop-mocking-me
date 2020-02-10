@@ -33,8 +33,14 @@ const mockRoutes = [
     responses: {
       GET: './mock-services/async.js'
     }
+  },
+  {
+    endpoint: '/cache',
+    responses: {
+      GET: './mock-services/cache.js'
+    }
   }
-]
+];
 
 app.get('/demo', (_, res) => {
   res.sendFile(path.resolve('./testbed/index.html'));
