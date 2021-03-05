@@ -5,28 +5,19 @@ Mock your services.
 
 `mock-routes.js`
 ```
-module.exports = [
-  {
-    endpoint: '/api/user',
-    responses: {
-      GET: './mocks/api/user.json'
-    }
+module.exports = {
+  '/api/user': {
+    GET: './mocks/api/user.json'
   },
-  {
-    endpoint: '/api/account',
-    responses: {
-      GET: './mocks/api/account-get.json',
-      POST: './mocks/api/account-update.json
-    }
+  '/api/account': {
+    GET: './mocks/api/account-get.json',
+    POST: './mocks/api/account-update.json
   },
-  {
-    endpoint: '/api/page',
-    responses: {
-      GET: {
-        path: './mocks/api/page.js',
-        delay: 500,
-        status: 200
-      }
+  '/api/page':
+    GET: {
+      path: './mocks/api/page.js',
+      delay: 500,
+      status: 200
     }
   }
 ];
@@ -44,37 +35,41 @@ module.exports = (req, res) => {
 const express = require('express');
 const app = express();
 
-// Just pass any valid express app and your routes/options.
-createMockServer(app, {
-  routes: require('./mock-routes'),
-  options: {
-    disableCaching: true
-  }
-});
+// Just pass any valid express app and your routes.
+createMockServer(app, require('./mock-routes'));
 ```
 
 ## API
 
-#### `createMockServer(app: Express.Application, config: Configuration);`
+#### `createMockServer(app: Express.Application, routes: MockRoutesMap);`
 
 ```
-interface Configuration {
-  routes: Route[];
-  options: {
-    disableCaching: boolean;
-  }
-};
+type MockRoutesMap = Record<string, MockRouteConfig>;
 
-interface Route {
-  endpoint: string;
-  responses: {
-    ['GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE']: string | RouteConfiguration;
-  }
-};
+type MockRouteConfig = Record<RequestMethod, string | RequestHandler | MockRequestConfig>;
 
-interface RouteConfiguration {
-  path: string;
-  delay: number;
-  status: number;
-};
+type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+type RequestHandler = (req: Express.Request, res: Express.Response) => any;
+
+interface MockRequestConfig {
+  /**
+   * A mock data file import path, or a request handler function.
+   */
+  serve: string | RequestHandler;
+  /**
+   * An optional response status code. Defaults to 200.
+   */
+  status?: number;
+  /**
+   * An optional response delay. Defaults to 0.
+   */
+  delay?: number;
+  /**
+   * Determines whether the mock data for a given route/request method
+   * is cached, i.e. does not change on file changes. Defaults to false,
+   * enabling mock responses to be updated without a dev server restart.
+   */
+  cached?: boolean;
+}
 ```

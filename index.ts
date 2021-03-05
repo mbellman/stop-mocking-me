@@ -1,33 +1,22 @@
 import * as path from 'path';
-import express, { Application as ExpressApplication } from 'express';
+import express, { Application as ExpressApplication, Request, Response } from 'express';
 import chalk from 'chalk';
 import cookieParser from 'cookie-parser';
 
 type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+type RequestHandler = (request: Request, response: Response) => any;
 
-interface MockResponseDefinition {
-  path: string;
+interface MockRequestConfig {
+  serve: string | RequestHandler;
   status?: number;
   delay?: number;
+  cached?: boolean;
 }
 
-type MockResponseConfiguration = string | MockResponseDefinition;
-type ResponseConfigurationMap = Record<RequestMethod, MockResponseConfiguration>;
-type ResponseDefinitionMap = Record<RequestMethod, MockResponseDefinition>;
-
-interface MockRoute {
-  endpoint: string;
-  responses: ResponseDefinitionMap;
-}
-
-interface MockServerOptions {
-  disableCaching?: boolean;
-}
-
-interface MockServerConfiguration {
-  routes: MockRoute[];
-  options: MockServerOptions;
-}
+type MockResponseConfig = Required<MockRequestConfig>;
+type MockResponseConfigMap = Record<RequestMethod, MockResponseConfig>;
+type MockRouteConfig = Record<RequestMethod, string | RequestHandler | MockRequestConfig>;
+type MockRoutesMap = Record<string, MockRouteConfig>;
 
 /**
  * @internal
@@ -37,14 +26,14 @@ const CURRENT_WORKING_DIRECTORY = process.cwd();
 /**
  * @internal
  */
-function log(message) {
+function log(message: string) {
   console.log(`${chalk.green('[Stop Mocking Me]')} ${message}`);
 }
 
 /**
  * @internal
  */
-function warn(message) {
+function warn(message: string) {
   console.log(`${chalk.red('[Stop Mocking Me]')} ${message}`);
 }
 
@@ -63,43 +52,45 @@ function bustModuleCache(id: string): void {
 }
 
 /**
- * Normalizes a mock response configuration into a mock response definition.
+ * Normalizes a mock route request, which can be a relative path to
+ * a mock data file, handler function, or partial configuration, into
+ * a mock response config with defaults for omitted options.
  *
  * @internal
  */
-function getMockResponseDefinition(configuration: MockResponseConfiguration): MockResponseDefinition {
+function createMockResponseConfig(mockRouteRequest: string | RequestHandler | MockRequestConfig): MockResponseConfig {
   const {
-    path = configuration as string,
+    serve = mockRouteRequest as string | RequestHandler,
     status = 200,
-    delay = 0
-  } = configuration as MockResponseDefinition;
+    delay = 0,
+    cached = false
+  } = mockRouteRequest as MockResponseConfig;
 
   return {
-    path,
+    serve: typeof serve === 'string'
+      ? path.resolve(CURRENT_WORKING_DIRECTORY, serve)
+      : serve,
     status,
-    delay
+    delay,
+    cached
   };
 }
 
 /**
- * Converts a response configuration map to a response definition map,
- * with each definition path as the absolute path to the mock resource.
+ * Normalizes a mock route configuration, which may contain shorthand
+ * or partial mock request configurations, into a response configuration
+ * map, which explictly defines response configs for each request method.
  *
  * @internal
  */
-function createResponseDefinitionMap(responses: ResponseConfigurationMap): ResponseDefinitionMap {
-  return Object.keys(responses).reduce((acc: ResponseDefinitionMap, requestMethod: RequestMethod) => {
-    const mockResponseConfiguration = responses[requestMethod];
-    const { path: responsePath, status, delay } = getMockResponseDefinition(mockResponseConfiguration);
+function createMockResponseConfigMap(config: MockRouteConfig): MockResponseConfigMap {
+  return Object.keys(config).reduce((acc: MockResponseConfigMap, requestMethod: RequestMethod) => {
+    const mockRouteRequest = config[requestMethod];
 
-    acc[requestMethod] = {
-      path: path.resolve(CURRENT_WORKING_DIRECTORY, responsePath),
-      status,
-      delay
-    };
+    acc[requestMethod] = createMockResponseConfig(mockRouteRequest);
 
     return acc;
-  }, {} as ResponseDefinitionMap);
+  }, {} as MockResponseConfigMap);
 }
 
 /**
@@ -108,56 +99,60 @@ function createResponseDefinitionMap(responses: ResponseConfigurationMap): Respo
  *
  * @internal
  */
-function createMockRoute({ endpoint, responses }: MockRoute, app: ExpressApplication, options: MockServerOptions): void {
-  const responseDefinitions = createResponseDefinitionMap(responses);
-  const supportedRequestMethods = Object.keys(responseDefinitions);
+function createMockRoute(app: ExpressApplication, endpoint: string, routeConfig: MockRouteConfig): void {
+  const responseConfigs = createMockResponseConfigMap(routeConfig);
+  const supportedRequestMethods = Object.keys(responseConfigs);
 
   app.use(endpoint, async (req, res, next) => {
-    const response = responseDefinitions[req.method as RequestMethod];
+    const responseConfig = responseConfigs[req.method as RequestMethod];
 
-    if (!response) {
+    if (!responseConfig) {
       warn(`Unsupported ${chalk.red(req.method)} call to endpoint: '${chalk.blue(endpoint)}' (supported: ${chalk.yellow(supportedRequestMethods.join(', '))})`);
       next();
 
       return;
     }
 
-    if (options.disableCaching) {
-      bustModuleCache(response.path);
+    const { cached, delay, serve, status } = responseConfig;
+
+    if (typeof serve === 'string' && !cached) {
+      bustModuleCache(serve);
     }
 
-    const { status, delay } = response;
-    const responseBody = require(response.path);
+    // If 'serve' is a request handler function, don't do anything
+    // with it yet. If otherwise a string, import it.
+    const response = typeof serve === 'function'
+      ? serve
+      : require(serve);
 
     // Tentatively set the response status so it can still be
     // optionally overridden by custom response middleware
     res.status(status);
 
-    const finalResponseBody = typeof responseBody === 'function'
-      ? await responseBody(req, res)
-      : responseBody;
+    // If 'response' is still a function, invoke it as middleware,
+    // passing the Express request/response objects through. Otherwise,
+    // treat it as the final response body.
+    const responseBody = typeof response === 'function'
+      ? await response(req, res)
+      : response;
 
     log(`${chalk.yellow(req.method)} request made to endpoint '${chalk.blue(endpoint)}' (status: ${res.statusCode})`);
 
-    setTimeout(() => res.send(finalResponseBody), delay);
+    setTimeout(() => res.send(responseBody), delay);
   });
 }
 
-export function createMockServer(app: ExpressApplication, config: MockServerConfiguration): void {
+export function createMockServer(app: ExpressApplication, routes: MockRoutesMap): void {
   app.use(express.json());
   app.use(cookieParser());
 
-  const { routes = [], options = {} } = config;
+  const routeEntries = Object.entries(routes);
 
-  for (const route of routes) {
-    createMockRoute(route, app, options);
+  for (const [ endpoint, routeConfig ] of routeEntries) {
+    createMockRoute(app, endpoint, routeConfig);
   }
 
   console.log('\n');
 
   log('Mock routes created!');
-
-  if (options.disableCaching) {
-    log('Mock data caching disabled. You can edit and save your mock responses on the fly!');
-  }
 }
