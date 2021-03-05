@@ -13,7 +13,7 @@ module.exports = {
     GET: './mocks/api/account-get.json',
     POST: './mocks/api/account-update.json
   },
-  '/api/page':
+  '/api/page': {
     GET: {
       path: './mocks/api/page.js',
       delay: 500,
